@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  # =========================================================================
+  # REPLICA SET MEMBER 1 (Primary Candidate, Priority: 2)
+  # =========================================================================
+  mongo1:
+    image: mongo:7.0
+    container_name: mongo1
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo1_data:/data/db
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # REPLICA SET MEMBER 2 (Secondary Candidate, Priority: 1)
+  # =========================================================================
+  mongo2:
+    image: mongo:7.0
+    container_name: mongo2
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo2_data:/data/db
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # REPLICA SET MEMBER 3 (Secondary Candidate, Priority: 1)
+  # =========================================================================
+  mongo3:
+    image: mongo:7.0
+    container_name: mongo3
+    restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongo3_data:/data/db
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # AUTOMATED REPLICA SET INITIALIZER
+  # =========================================================================
+  mongo-init:
+    image: mongo:7.0
+    container_name: mongo-init
+    depends_on:
+      mongo1:
+        condition: service_healthy
+      mongo2:
+        condition: service_healthy
+      mongo3:
+        condition: service_healthy
+    networks:
+      - ecommerce-network
+    restart: "no"
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        echo "Waiting for all MongoDB nodes to stabilize..."
+        sleep 3
+        echo "Initiating 3-Node MongoDB Replica Set (rs0)..."
+        mongosh --host mongo1:27017 --eval '
+          try {
+            var status = rs.status();
+            print("Replica Set already initialized.");
+          } catch(e) {
+            print("Initializing Replica Set rs0...");
+            rs.initiate({
+              _id: "rs0",
+              members: [
+                { _id: 0, host: "mongo1:27017", priority: 2 },
+                { _id: 1, host: "mongo2:27017", priority: 1 },
+                { _id: 2, host: "mongo3:27017", priority: 1 }
+              ]
+            });
+            print("Replica set initiation command issued successfully.");
+          }
+        '
+        echo "Replica set initialization complete."
+
+networks:
+  ecommerce-network:
+    driver: bridge
+
+volumes:
+  mongo1_data:
+  mongo2_data:
+  mongo3_data:

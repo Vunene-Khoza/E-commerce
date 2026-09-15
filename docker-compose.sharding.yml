@@ -1,0 +1,216 @@
+version: '3.8'
+
+services:
+  # =========================================================================
+  # CONFIG SERVER REPLICA SET (cfgrs)
+  # Stores cluster metadata, shard map, and chunk distributions
+  # =========================================================================
+  cfg1:
+    image: mongo:7.0
+    container_name: cfg1
+    restart: unless-stopped
+    command: ["mongod", "--configsvr", "--replSet", "cfgrs", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - cfg1_data:/data/configdb
+    networks:
+      - sharding-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  cfg2:
+    image: mongo:7.0
+    container_name: cfg2
+    restart: unless-stopped
+    command: ["mongod", "--configsvr", "--replSet", "cfgrs", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - cfg2_data:/data/configdb
+    networks:
+      - sharding-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # SHARD 1 REPLICA SET (shard1rs)
+  # =========================================================================
+  shard1-a:
+    image: mongo:7.0
+    container_name: shard1-a
+    restart: unless-stopped
+    command: ["mongod", "--shardsvr", "--replSet", "shard1rs", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - shard1_a_data:/data/db
+    networks:
+      - sharding-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  shard1-b:
+    image: mongo:7.0
+    container_name: shard1-b
+    restart: unless-stopped
+    command: ["mongod", "--shardsvr", "--replSet", "shard1rs", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - shard1_b_data:/data/db
+    networks:
+      - sharding-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # SHARD 2 REPLICA SET (shard2rs)
+  # =========================================================================
+  shard2-a:
+    image: mongo:7.0
+    container_name: shard2-a
+    restart: unless-stopped
+    command: ["mongod", "--shardsvr", "--replSet", "shard2rs", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - shard2_a_data:/data/db
+    networks:
+      - sharding-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  shard2-b:
+    image: mongo:7.0
+    container_name: shard2-b
+    restart: unless-stopped
+    command: ["mongod", "--shardsvr", "--replSet", "shard2rs", "--bind_ip_all", "--port", "27017"]
+    volumes:
+      - shard2_b_data:/data/db
+    networks:
+      - sharding-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # MONGOS QUERY ROUTER
+  # Single point of contact for application; routes queries to correct shard
+  # =========================================================================
+  mongos:
+    image: mongo:7.0
+    container_name: mongos
+    restart: unless-stopped
+    command: ["mongos", "--configdb", "cfgrs/cfg1:27017,cfg2:27017", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27017:27017"
+    networks:
+      - sharding-network
+    depends_on:
+      cfg1:
+        condition: service_healthy
+      cfg2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # =========================================================================
+  # SHARDED CLUSTER INITIALIZER
+  # Configures replica sets, adds shards, and configures shard keys
+  # =========================================================================
+  sharding-init:
+    image: mongo:7.0
+    container_name: sharding-init
+    depends_on:
+      mongos:
+        condition: service_healthy
+      shard1-a:
+        condition: service_healthy
+      shard1-b:
+        condition: service_healthy
+      shard2-a:
+        condition: service_healthy
+      shard2-b:
+        condition: service_healthy
+    networks:
+      - sharding-network
+    restart: "no"
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        echo "Initializing Config Server Replica Set..."
+        mongosh --host cfg1:27017 --eval '
+          try { rs.status(); } catch(e) {
+            rs.initiate({
+              _id: "cfgrs",
+              configsvr: true,
+              members: [{ _id: 0, host: "cfg1:27017" }, { _id: 1, host: "cfg2:27017" }]
+            });
+          }
+        '
+        sleep 2
+
+        echo "Initializing Shard 1 Replica Set..."
+        mongosh --host shard1-a:27017 --eval '
+          try { rs.status(); } catch(e) {
+            rs.initiate({
+              _id: "shard1rs",
+              members: [{ _id: 0, host: "shard1-a:27017" }, { _id: 1, host: "shard1-b:27017" }]
+            });
+          }
+        '
+        sleep 2
+
+        echo "Initializing Shard 2 Replica Set..."
+        mongosh --host shard2-a:27017 --eval '
+          try { rs.status(); } catch(e) {
+            rs.initiate({
+              _id: "shard2rs",
+              members: [{ _id: 0, host: "shard2-a:27017" }, { _id: 1, host: "shard2-b:27017" }]
+            });
+          }
+        '
+        sleep 4
+
+        echo "Adding Shards to Mongos Router..."
+        mongosh --host mongos:27017 --eval '
+          try { sh.addShard("shard1rs/shard1-a:27017,shard1-b:27017"); } catch(e) { print(e); }
+          try { sh.addShard("shard2rs/shard2-a:27017,shard2-b:27017"); } catch(e) { print(e); }
+
+          print("Enabling Sharding for database: ecommerce...");
+          sh.enableSharding("ecommerce");
+
+          print("Sharding orders collection with Hashed Shard Key { userId: \"hashed\" }...");
+          sh.shardCollection("ecommerce.orders", { userId: "hashed" });
+
+          print("Sharding products collection with Compound Shard Key { category: 1, _id: 1 }...");
+          sh.shardCollection("ecommerce.products", { category: 1, _id: 1 });
+
+          print("Sharded cluster configuration status:");
+          sh.status();
+        '
+        echo "Sharded Cluster Initialized Successfully!"
+
+networks:
+  sharding-network:
+    driver: bridge
+
+volumes:
+  cfg1_data:
+  cfg2_data:
+  shard1_a_data:
+  shard1_b_data:
+  shard2_a_data:
+  shard2_b_data:

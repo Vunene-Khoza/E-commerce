@@ -1,0 +1,43 @@
+{
+  "name": "distributed-ecommerce-nosql",
+  "version": "1.0.0",
+  "description": "Enterprise Distributed NoSQL E-Commerce Marketplace Backend built with Express.js, MongoDB, Replica Sets, and ACID Transactions",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node app.js",
+    "cluster:status": "node scripts/cluster-status.js",
+    "test:e2e": "node scripts/seed-and-test.js",
+    "benchmark": "node scripts/benchmark.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Vunene-Khoza/E-commerce.git"
+  },
+  "keywords": [
+    "nosql",
+    "mongodb",
+    "replica-set",
+    "sharding",
+    "transactions",
+    "ecommerce",
+    "express",
+    "nodejs"
+  ],
+  "author": "Vunene Khoza",
+  "license": "MIT",
+
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "express-validator": "^7.2.1",
+    "helmet": "^8.1.0",
+    "mongodb": "^6.17.0",
+    "mongoose": "^8.15.1",
+    "mongosh": "^2.5.1",
+    "multer": "^2.0.0"
+  },
+  "description": ""
+}
